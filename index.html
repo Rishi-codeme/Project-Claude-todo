@@ -96,10 +96,39 @@ footer{display:flex;justify-content:space-between;align-items:center;padding:14p
 .clear:disabled{opacity:.4;cursor:default}
 @media (max-width:420px){body{padding:20px 12px}header,form{padding-left:20px;padding-right:20px}.tabs{padding:0 20px}h1{font-size:24px}footer{padding:14px 20px 18px}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+[hidden]{display:none!important}
+h1{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.auth-body{padding:36px 28px 32px}
+.auth-body .tabs{padding:0;margin-top:20px}
+#auth-form{flex-direction:column;gap:14px;padding:22px 0 0}
+#auth-form label{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:600;color:var(--muted)}
+#auth-form .field{color:var(--ink);font-weight:500}
+.err{color:var(--danger);font-size:13px;font-weight:600;min-height:18px}
+.err.ok{color:var(--accent)}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--card);padding:10px 16px;border-radius:12px;font-size:14px;font-weight:600;box-shadow:var(--shadow);max-width:90vw;z-index:10}
 </style>
 </head>
 <body>
-<main class="app">
+<section class="app" id="auth" hidden>
+  <div class="auth-body">
+    <h1>Tasks</h1>
+    <p class="sub" id="auth-sub">Log in to see your tasks.</p>
+    <div class="tabs" role="tablist" id="auth-tabs">
+      <button class="tab" type="button" role="tab" data-m="login" aria-selected="true">Log in</button>
+      <button class="tab" type="button" role="tab" data-m="signup" aria-selected="false">Sign up</button>
+    </div>
+    <form id="auth-form" novalidate>
+      <label id="name-wrap" hidden>Name<input class="field" id="a-name" type="text" autocomplete="name" maxlength="60"></label>
+      <label>Email<input class="field" id="a-email" type="email" autocomplete="email"></label>
+      <label>Password<input class="field" id="a-pass" type="password" autocomplete="current-password"></label>
+      <p class="err" id="a-err" role="alert"></p>
+      <button class="add" type="submit" id="a-submit">Log in</button>
+    </form>
+  </div>
+</section>
+
+<main class="app" id="app" hidden>
   <header>
     <div class="ring" aria-hidden="true">
       <svg width="76" height="76" viewBox="0 0 76 76"><circle class="track" cx="38" cy="38" r="32"/><circle class="bar" id="bar" cx="38" cy="38" r="32" stroke-dasharray="201.06" stroke-dashoffset="201.06"/></svg>
@@ -111,6 +140,9 @@ footer{display:flex;justify-content:space-between;align-items:center;padding:14p
     </div>
     <button class="theme" id="theme" aria-label="Toggle dark mode" title="Toggle theme">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+    </button>
+    <button class="theme" id="logout" aria-label="Log out" title="Log out">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
     </button>
   </header>
 
@@ -133,20 +165,77 @@ footer{display:flex;justify-content:space-between;align-items:center;padding:14p
   </footer>
 </main>
 
+<div id="toast" role="status" hidden></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
 (function(){
-  const KEY = "tasks.v1", THEME = "tasks.theme";
+  const THEME = "tasks.theme";
   const $ = s => document.querySelector(s);
   const list = $("#list"), input = $("#input");
   const store = {
     get(k, d){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e){ return d; } },
     set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
   };
-  let tasks = store.get(KEY, []);
+  let tasks = [], user = null;
   let filter = "all";
   let newId = null;
-  const save = () => store.set(KEY, tasks);
-  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const uid = () => (crypto.randomUUID ? crypto.randomUUID() :
+    "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === "x" ? r : (r & 3 | 8)).toString(16); }));
+
+  /* ---------------------------------------------------------------
+     SUPABASE SETUP: paste your project values here.
+     (Supabase dashboard > Project Settings > API)
+     The anon key is safe to publish; Row Level Security protects data.
+     --------------------------------------------------------------- */
+  const CONFIG = {
+    url: "https://oqgxrmluypqspladfntk.supabase.co",
+    key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9xZ3hybWx1eXBxc3BsYWRmbnRrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE4MjY0MzMsImV4cCI6MjEwNzQwMjQzM30.RIt1e35deTyZ0Kd95sdbNKzeTAZmaOVEOdL1X2Fv1oA"
+  };
+  const sb = (window.supabase && !/^YOUR_/.test(CONFIG.url + CONFIG.key)) ? supabase.createClient(CONFIG.url, CONFIG.key) : null;
+  const pub = u => ({id: u.id, name: (u.user_metadata && u.user_metadata.name) || (u.email || "").split("@")[0], email: u.email});
+  const ok = r => { if (r.error) throw r.error; return r.data; };
+
+  /* All data access lives here. */
+  const DB = {
+    async register(name, email, pw){
+      const d = ok(await sb.auth.signUp({email: email.trim(), password: pw, options: {data: {name: name.trim()}}}));
+      return {user: d.session ? pub(d.user) : null};   // null = email confirmation required
+    },
+    async login(email, pw){
+      return pub(ok(await sb.auth.signInWithPassword({email: email.trim(), password: pw})).user);
+    },
+    async session(){
+      const d = ok(await sb.auth.getSession());
+      return d.session ? pub(d.session.user) : null;
+    },
+    async logout(){ await sb.auth.signOut(); },
+    async loadTasks(){
+      const rows = ok(await sb.from("tasks").select("id,text,done,priority").order("created_at", {ascending: false}));
+      return rows.map(r => ({id: r.id, text: r.text, done: r.done, p: r.priority}));
+    },
+    async addTask(t){ ok(await sb.from("tasks").insert({id: t.id, text: t.text, done: t.done, priority: t.p})); },
+    async updateTask(id, patch){
+      const row = {};
+      if ("text" in patch) row.text = patch.text;
+      if ("done" in patch) row.done = patch.done;
+      if ("p" in patch) row.priority = patch.p;
+      ok(await sb.from("tasks").update(row).eq("id", id));
+    },
+    async deleteTask(id){ ok(await sb.from("tasks").delete().eq("id", id)); },
+    async deleteCompleted(){ ok(await sb.from("tasks").delete().eq("done", true)); }
+  };
+
+  function toast(msg){
+    const t = $("#toast"); t.textContent = msg; t.hidden = false;
+    clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, 4000);
+  }
+  // Changes show instantly; if the save fails, tell the user and reload from the server.
+  function sync(p){
+    p.catch(() => {
+      toast("Couldn't save that change. Your list was reloaded.");
+      DB.loadTasks().then(r => { tasks = r; render(); }).catch(() => {});
+    });
+  }
   const PRIO = ["Low priority", "Medium priority", "High priority"];
   const CHECK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
   const TRASH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>';
@@ -163,7 +252,7 @@ footer{display:flex;justify-content:space-between;align-items:center;padding:14p
     const pct = total ? Math.round(done / total * 100) : 0;
     $("#bar").style.strokeDashoffset = 201.06 * (1 - pct / 100);
     $("#pct").textContent = pct + "%";
-    $("#greet").textContent = greeting();
+    $("#greet").textContent = user ? "Hi, " + user.name.split(" ")[0] : "Today";
     $("#sub").textContent = new Date().toLocaleDateString(undefined, {weekday:"long", month:"long", day:"numeric"});
     $("#c-all").textContent = total; $("#c-active").textContent = active; $("#c-done").textContent = done;
     $("#left").textContent = active === 0 ? (total ? "All tasks complete" : "No tasks yet") : active + (active === 1 ? " task left" : " tasks left");
@@ -195,18 +284,18 @@ footer{display:flex;justify-content:space-between;align-items:center;padding:14p
     tasks.unshift(t); newId = t.id;
     input.value = "";
     if (filter === "done") setFilter("all");
-    save(); render();
+    sync(DB.addTask(t)); render();
   });
 
   list.addEventListener("click", e => {
     const el = e.target.closest("[data-a]"); if (!el) return;
     const li = el.closest("li"), t = tasks.find(x => x.id === li.dataset.id);
     const a = el.dataset.a;
-    if (a === "toggle") t.done = !t.done;
-    else if (a === "del") tasks = tasks.filter(x => x !== t);
-    else if (a === "prio") t.p = (t.p + 1) % 3;
+    if (a === "toggle"){ t.done = !t.done; sync(DB.updateTask(t.id, {done: t.done})); }
+    else if (a === "del"){ tasks = tasks.filter(x => x !== t); sync(DB.deleteTask(t.id)); }
+    else if (a === "prio"){ t.p = (t.p + 1) % 3; sync(DB.updateTask(t.id, {p: t.p})); }
     else return;
-    save(); render();
+    render();
   });
 
   list.addEventListener("dblclick", e => {
@@ -220,8 +309,8 @@ footer{display:flex;justify-content:space-between;align-items:center;padding:14p
     const finish = ok => {
       if (finished) return; finished = true;
       const v = box.value.trim();
-      if (ok && v) t.text = v;
-      save(); render();
+      if (ok && v && v !== t.text){ t.text = v; sync(DB.updateTask(t.id, {text: v})); }
+      render();
     };
     box.addEventListener("keydown", ev => { if (ev.key === "Enter") finish(true); if (ev.key === "Escape") finish(false); });
     box.addEventListener("blur", () => finish(true));
@@ -229,14 +318,14 @@ footer{display:flex;justify-content:space-between;align-items:center;padding:14p
 
   function setFilter(f){
     filter = f;
-    document.querySelectorAll(".tab").forEach(b => b.setAttribute("aria-selected", b.dataset.f === f));
+    document.querySelectorAll("#tabs .tab").forEach(b => b.setAttribute("aria-selected", b.dataset.f === f));
   }
   $("#tabs").addEventListener("click", e => {
     const b = e.target.closest(".tab"); if (!b) return;
     setFilter(b.dataset.f); render();
   });
 
-  $("#clear").addEventListener("click", () => { tasks = tasks.filter(t => !t.done); save(); render(); });
+  $("#clear").addEventListener("click", () => { tasks = tasks.filter(t => !t.done); sync(DB.deleteCompleted()); render(); });
 
   $("#theme").addEventListener("click", () => {
     const root = document.documentElement;
@@ -247,7 +336,64 @@ footer{display:flex;justify-content:space-between;align-items:center;padding:14p
   const savedTheme = store.get(THEME, null);
   if (savedTheme) document.documentElement.dataset.theme = savedTheme;
 
-  render();
+  /* ---------- Login / sign up ---------- */
+  const authEl = $("#auth"), appEl = $("#app");
+  let mode = "login", busy = false;
+  function authMsg(text, good){ const e = $("#a-err"); e.textContent = text || ""; e.classList.toggle("ok", !!good); }
+  function setMode(m){
+    mode = m;
+    document.querySelectorAll("#auth-tabs .tab").forEach(b => b.setAttribute("aria-selected", b.dataset.m === m));
+    $("#name-wrap").hidden = m !== "signup";
+    $("#a-pass").autocomplete = m === "signup" ? "new-password" : "current-password";
+    $("#a-submit").textContent = m === "signup" ? "Create account" : "Log in";
+    $("#auth-sub").textContent = m === "signup" ? "Create an account to keep your own list." : "Log in to see your tasks.";
+    authMsg("");
+  }
+  $("#auth-tabs").addEventListener("click", e => { const b = e.target.closest(".tab"); if (b) setMode(b.dataset.m); });
+
+  async function enter(u){
+    user = u; tasks = [];
+    setFilter("all");
+    authEl.hidden = true; appEl.hidden = false;
+    render();
+    try { tasks = await DB.loadTasks(); } catch (e) { toast("Couldn't load your tasks. Check your connection."); }
+    render(); input.focus();
+  }
+  function showAuth(){
+    user = null; tasks = [];
+    appEl.hidden = true; authEl.hidden = false;
+    $("#a-pass").value = ""; setMode("login");
+  }
+
+  $("#auth-form").addEventListener("submit", async e => {
+    e.preventDefault();
+    if (busy || !sb) return;
+    const name = $("#a-name").value, email = $("#a-email").value, pass = $("#a-pass").value, btn = $("#a-submit");
+    authMsg("");
+    if (mode === "signup" && !name.trim()) return authMsg("Enter your name.");
+    if (!/^\S+@\S+\.\S+$/.test(email.trim())) return authMsg("Enter a valid email address.");
+    if (pass.length < 6) return authMsg("Password must be at least 6 characters.");
+    busy = true; btn.disabled = true;
+    try {
+      if (mode === "signup"){
+        const r = await DB.register(name, email, pass);
+        if (r.user) await enter(r.user);
+        else { setMode("login"); authMsg("Account created. Check your email to confirm it, then log in.", true); }
+      } else {
+        await enter(await DB.login(email, pass));
+      }
+    } catch (ex) { authMsg(ex.message || "Something went wrong. Try again."); }
+    finally { busy = false; btn.disabled = false; }
+  });
+  $("#logout").addEventListener("click", async () => { try { await DB.logout(); } catch (e) {} showAuth(); });
+
+  if (!sb){
+    showAuth();
+    authMsg("Setup needed: add your Supabase URL and anon key at the top of the script.");
+    $("#a-submit").disabled = true;
+  } else {
+    DB.session().then(u => u ? enter(u) : showAuth()).catch(showAuth);
+  }
 })();
 </script>
 </body>
