@@ -213,7 +213,7 @@ select option{background:var(--card);color:var(--ink)}
      --------------------------------------------------------------- */
   const CONFIG = {
     url: "https://oqgxrmluypqspladfntk.supabase.co",
-    key: "YeyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9xZ3hybWx1eXBxc3BsYWRmbnRrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE4MjY0MzMsImV4cCI6MjEwNzQwMjQzM30.RIt1e35deTyZ0Kd95sdbNKzeTAZmaOVEOdL1X2Fv1oA"
+    key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9xZ3hybWx1eXBxc3BsYWRmbnRrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE4MjY0MzMsImV4cCI6MjEwNzQwMjQzM30.RIt1e35deTyZ0Kd95sdbNKzeTAZmaOVEOdL1X2Fv1oA"
   };
   const sb = (window.supabase && !/^YOUR_/.test(CONFIG.url + CONFIG.key)) ? supabase.createClient(CONFIG.url, CONFIG.key) : null;
   const pub = u => ({id: u.id, name: (u.user_metadata && u.user_metadata.name) || (u.email || "").split("@")[0], email: u.email});
