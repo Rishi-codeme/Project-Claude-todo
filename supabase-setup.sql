@@ -18,3 +18,14 @@ create policy "Read own tasks"   on public.tasks for select to authenticated usi
 create policy "Insert own tasks" on public.tasks for insert to authenticated with check ((select auth.uid()) = user_id);
 create policy "Update own tasks" on public.tasks for update to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 create policy "Delete own tasks" on public.tasks for delete to authenticated using ((select auth.uid()) = user_id);
+
+
+-- For an existing project that already has the tasks table.
+-- Run once in Supabase: SQL Editor > New query > paste > Run
+-- (priority already exists: 0 = low, 1 = medium, 2 = high)
+
+alter table public.tasks_todo
+  add column if not exists severity smallint not null default 0
+  check (severity between 0 and 2);   -- 0 low, 1 medium, 2 high
+
+-- Existing Row Level Security policies already cover the new column.

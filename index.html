@@ -107,6 +107,21 @@ h1{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .err{color:var(--danger);font-size:13px;font-weight:600;min-height:18px}
 .err.ok{color:var(--accent)}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--card);padding:10px 16px;border-radius:12px;font-size:14px;font-weight:600;box-shadow:var(--shadow);max-width:90vw;z-index:10}
+select{font:inherit;color:var(--ink);cursor:pointer}
+select option{background:var(--card);color:var(--ink)}
+#form{flex-wrap:wrap}
+.opts{flex-basis:100%;display:flex;gap:10px}
+.opts label{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:40px;padding:0 6px 0 14px;border-radius:12px;background:var(--bg);font-size:13px;font-weight:600;color:var(--muted)}
+.opts select{flex:1;min-width:0;height:100%;border:0;background:transparent;font-size:14px;font-weight:700}
+.sort{margin-left:auto;align-self:center;border:0;background:transparent;font-size:13px;font-weight:600;color:var(--muted);padding:6px 0}
+.body{flex:1;min-width:0}
+.body .text{display:block}
+.edit{width:100%}
+.meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.pill{border:1.5px solid var(--line);border-radius:999px;background:transparent;padding:2px 6px;font-size:12px;font-weight:700;color:var(--lo)}
+.pill[data-v="1"]{color:var(--mid);border-color:currentColor}
+.pill[data-v="2"]{color:var(--hi);border-color:currentColor}
+@media (max-width:420px){.tab{padding:10px 8px}}
 </style>
 </head>
 <body>
@@ -149,12 +164,21 @@ h1{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   <form id="form" autocomplete="off">
     <input class="field" id="input" type="text" placeholder="What needs to get done?" maxlength="200" aria-label="New task" required>
     <button class="add" type="submit">Add task</button>
+    <div class="opts">
+      <label>Priority
+        <select id="n-prio" aria-label="Priority"><option value="0">Low</option><option value="1">Medium</option><option value="2">High</option></select>
+      </label>
+      <label>Severity
+        <select id="n-sev" aria-label="Severity"><option value="0">Low</option><option value="1">Medium</option><option value="2">High</option></select>
+      </label>
+    </div>
   </form>
 
   <div class="tabs" role="tablist" id="tabs">
     <button class="tab" role="tab" data-f="all" aria-selected="true">All<span id="c-all">0</span></button>
     <button class="tab" role="tab" data-f="active" aria-selected="false">Active<span id="c-active">0</span></button>
     <button class="tab" role="tab" data-f="done" aria-selected="false">Done<span id="c-done">0</span></button>
+    <select class="sort" id="sort" aria-label="Sort tasks by"><option value="new">Newest</option><option value="prio">Priority</option><option value="sev">Severity</option></select>
   </div>
 
   <ul id="list" aria-live="polite"></ul>
@@ -176,7 +200,7 @@ h1{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     get(k, d){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e){ return d; } },
     set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
   };
-  let tasks = [], user = null;
+  let tasks = [], user = null, sort = "new";
   let filter = "all";
   let newId = null;
   const uid = () => (crypto.randomUUID ? crypto.randomUUID() :
@@ -189,7 +213,7 @@ h1{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
      --------------------------------------------------------------- */
   const CONFIG = {
     url: "https://oqgxrmluypqspladfntk.supabase.co",
-    key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9xZ3hybWx1eXBxc3BsYWRmbnRrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE4MjY0MzMsImV4cCI6MjEwNzQwMjQzM30.RIt1e35deTyZ0Kd95sdbNKzeTAZmaOVEOdL1X2Fv1oA"
+    key: "YeyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9xZ3hybWx1eXBxc3BsYWRmbnRrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE4MjY0MzMsImV4cCI6MjEwNzQwMjQzM30.RIt1e35deTyZ0Kd95sdbNKzeTAZmaOVEOdL1X2Fv1oA"
   };
   const sb = (window.supabase && !/^YOUR_/.test(CONFIG.url + CONFIG.key)) ? supabase.createClient(CONFIG.url, CONFIG.key) : null;
   const pub = u => ({id: u.id, name: (u.user_metadata && u.user_metadata.name) || (u.email || "").split("@")[0], email: u.email});
@@ -210,15 +234,16 @@ h1{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     },
     async logout(){ await sb.auth.signOut(); },
     async loadTasks(){
-      const rows = ok(await sb.from("tasks").select("id,text,done,priority").order("created_at", {ascending: false}));
-      return rows.map(r => ({id: r.id, text: r.text, done: r.done, p: r.priority}));
+      const rows = ok(await sb.from("tasks").select("id,text,done,priority,severity").order("created_at", {ascending: false}));
+      return rows.map(r => ({id: r.id, text: r.text, done: r.done, p: r.priority, s: r.severity}));
     },
-    async addTask(t){ ok(await sb.from("tasks").insert({id: t.id, text: t.text, done: t.done, priority: t.p})); },
+    async addTask(t){ ok(await sb.from("tasks").insert({id: t.id, text: t.text, done: t.done, priority: t.p, severity: t.s})); },
     async updateTask(id, patch){
       const row = {};
       if ("text" in patch) row.text = patch.text;
       if ("done" in patch) row.done = patch.done;
       if ("p" in patch) row.priority = patch.p;
+      if ("s" in patch) row.severity = patch.s;
       ok(await sb.from("tasks").update(row).eq("id", id));
     },
     async deleteTask(id){ ok(await sb.from("tasks").delete().eq("id", id)); },
@@ -240,6 +265,9 @@ h1{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   const CHECK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
   const TRASH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>';
 
+  const LV = ["Low", "Medium", "High"];
+  const sel = (a, label, v) => `<select class="pill" data-a="${a}" data-v="${v}" aria-label="${label}">` +
+    LV.map((n, i) => `<option value="${i}"${i === v ? " selected" : ""}>${label}: ${n}</option>`).join("") + "</select>";
   function esc(s){ return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
   function greeting(){
@@ -258,7 +286,8 @@ h1{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     $("#left").textContent = active === 0 ? (total ? "All tasks complete" : "No tasks yet") : active + (active === 1 ? " task left" : " tasks left");
     $("#clear").disabled = done === 0;
 
-    const shown = tasks.filter(t => filter === "all" || (filter === "done") === t.done);
+    let shown = tasks.filter(t => filter === "all" || (filter === "done") === t.done);
+    if (sort !== "new"){ const k = sort === "prio" ? "p" : "s"; shown = [...shown].sort((a, b) => b[k] - a[k]); }
     if (!shown.length){
       const msg = filter === "done" ? ["Nothing finished yet", "Completed tasks will show up here."]
         : filter === "active" && total ? ["You're all caught up", "Add a new task to keep going."]
@@ -269,8 +298,10 @@ h1{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     list.innerHTML = shown.map(t => `
       <li data-id="${t.id}" class="${t.done ? "done" : ""} ${t.id === newId ? "enter" : ""}">
         <button class="check" data-a="toggle" role="checkbox" aria-checked="${t.done}" aria-label="Mark complete">${CHECK}</button>
-        <span class="text" data-a="edit" title="Double-click to edit">${esc(t.text)}</span>
-        <button class="prio" data-a="prio" data-p="${t.p}" aria-label="${PRIO[t.p]}. Change priority" title="${PRIO[t.p]}"><i></i></button>
+        <div class="body">
+          <span class="text" data-a="edit" title="Double-click to edit">${esc(t.text)}</span>
+          <div class="meta">${sel("prio", "Priority", t.p)}${sel("sev", "Severity", t.s)}</div>
+        </div>
         <button class="del" data-a="del" aria-label="Delete task">${TRASH}</button>
       </li>`).join("");
     newId = null;
@@ -280,23 +311,31 @@ h1{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     e.preventDefault();
     const text = input.value.trim();
     if (!text) return;
-    const t = {id: uid(), text, done: false, p: 0};
+    const t = {id: uid(), text, done: false, p: +$("#n-prio").value, s: +$("#n-sev").value};
     tasks.unshift(t); newId = t.id;
-    input.value = "";
+    input.value = ""; $("#n-prio").value = "0"; $("#n-sev").value = "0";
     if (filter === "done") setFilter("all");
     sync(DB.addTask(t)); render();
   });
 
   list.addEventListener("click", e => {
-    const el = e.target.closest("[data-a]"); if (!el) return;
+    const el = e.target.closest("[data-a]"); if (!el || el.tagName === "SELECT") return;
     const li = el.closest("li"), t = tasks.find(x => x.id === li.dataset.id);
     const a = el.dataset.a;
     if (a === "toggle"){ t.done = !t.done; sync(DB.updateTask(t.id, {done: t.done})); }
     else if (a === "del"){ tasks = tasks.filter(x => x !== t); sync(DB.deleteTask(t.id)); }
-    else if (a === "prio"){ t.p = (t.p + 1) % 3; sync(DB.updateTask(t.id, {p: t.p})); }
     else return;
     render();
   });
+
+  list.addEventListener("change", e => {
+    const el = e.target.closest("select[data-a]"); if (!el) return;
+    const t = tasks.find(x => x.id === el.closest("li").dataset.id); if (!t) return;
+    const k = el.dataset.a === "prio" ? "p" : "s", v = +el.value;
+    t[k] = v; sync(DB.updateTask(t.id, {[k]: v}));
+    if (sort !== "new") render(); else el.dataset.v = v;
+  });
+  $("#sort").addEventListener("change", e => { sort = e.target.value; render(); });
 
   list.addEventListener("dblclick", e => {
     const span = e.target.closest(".text"); if (!span) return;
